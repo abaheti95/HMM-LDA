@@ -2,7 +2,8 @@
 
 using namespace std;
 
-void print_vector(vector<int> &v) {
+template<typename T>
+void print_vector(vector<T> &v) {
 	int size = v.size();
 	for(int i = 0; i < size; i++) {
 		cout << v[i] << " ";
@@ -61,7 +62,7 @@ void HiddenMarkovModelLatentDirichletAllocation::add_document(vector<int> docume
 		class_assignment[i] = class_dist(rng);
 	}
 	// cout << "Printing topic assignments of a document" << endl;
-	// print_vector(topic_assignment);
+	// print_vector<int>(topic_assignment);
 	topic_assignments.push_back(topic_assignment);
 	class_assignments.push_back(class_assignment);
 }
@@ -119,9 +120,10 @@ void HiddenMarkovModelLatentDirichletAllocation::train(int iterations, int save_
 				draw_topic(document_idx, word_idx, doc_size);
 			}
 		}
-		std::cout << "Time for iteration " << i <<": " << (std::clock() - start) / (double)(CLOCKS_PER_SEC) << " s" << std::endl;
+		std::cout << "Time for iteration " << i <<": " << (std::clock() - start) / (double)(CLOCKS_PER_SEC) << " s" << endl;
 		if((i%save_freq) == 0)
 			save_assignments(i);
+		// cout << endl << endl << endl << endl;
 	}
 }
 
@@ -137,22 +139,42 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	int future = -1;
 	if(word_idx < doc_size-1)
 		future = class_assignments[document_idx][word_idx + 1];
-	
+
+	// Remove current word from transition counts
+	if(previous != -1)
+		num_transitions[previous][old_class]--;
+	if(future != -1)
+		num_transitions[old_class][future]--;
+	if(old_class == 0) {
+		// Remove word from topic counts
+		num_same_words_assigned_to_topic[word][old_topic]--;
+		num_words_assigned_to_topic[old_topic]--;
+		num_words_in_doc_assigned_to_topic[document_idx][old_topic]--;
+	}
+	// Remove the word from class counts
+	num_same_words_assigned_to_class[word][old_class]--;
+	num_words_assigned_to_class[old_class]--;
+
 	// Build first term of numerator
 	vector<double> term_1(num_classes, 0.0);
 	if(previous != -1) {
 		for(int i = 0; i < num_classes; i++)
-			term_1[i] = num_transitions[previous][i] + gamma;
-		term_1[old_class] -= 1.0;							// Exclude current word
+			term_1[i] = num_transitions[previous][i];
 	}
+	//Smoothing
+	for(int i = 0; i < num_classes; i++)
+		term_1[i] += gamma;
 
 	// Build second term of numerator
 	vector<double> term_2(num_classes, 0.0);
 	if(future != -1) {
 		for(int i = 0; i < num_classes; i++)
-			term_2[i] = num_transitions[i][future] + gamma;
-		term_2[old_class] -= 1.0; 							// Exclude current word
+			term_2[i] = num_transitions[i][future];
 	}
+	//Smoothing
+	for(int i = 0; i < num_classes; i++)
+		term_2[i] += gamma;
+	// Adjusting for the itentity value in the numerator term 2
 	if(previous != -1 && future != -1 && (previous == future))
 		term_2[previous] += 1.0;
 
@@ -174,10 +196,7 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	vector<double> multiplier_numerator(num_same_words_assigned_to_class[word].begin(), 
 		num_same_words_assigned_to_class[word].end());
 	multiplier_numerator[0] = num_same_words_assigned_to_topic[word][old_topic];
-	// Exclude current word
-	if(old_class != 0)
-		multiplier_numerator[old_class] -= 1.0;
-	multiplier_numerator[0] -= 1.0;
+	
 	// Smoothing
 	for(int i = 0; i < num_classes; i++) {
 		if(i == 0)
@@ -189,10 +208,7 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	// Initialize denominator of multiplier with global class/topic counts
 	vector<double> multiplier_denominator(num_words_assigned_to_class.begin(), num_words_assigned_to_class.end());
 	multiplier_denominator[0] = num_words_assigned_to_topic[old_topic];
-	// Exclude current word
-	if(old_class != 0)
-		multiplier_denominator[old_class] -= 1.0;
-	multiplier_denominator[0] -= 1.0;
+	
 	// Smoothing
 	for(int i = 0; i < num_classes; i++) {
 		if(i == 0)
@@ -206,38 +222,28 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	for(int i = 0; i < num_classes; i++) {
 		proportions[i] = (multiplier_numerator[i] / multiplier_denominator[i]) * numerator[i] / denominator[i];
 	}
-
 	// Draw class
 	// logging.info('proportions = %s', proportions)
 	int new_class = categorical(proportions);
 	// logging.info('drew class %d', new_class)
 	class_assignments[document_idx][word_idx] = new_class;
 
-	// Correct counts
+	// Restore counts counts
 	if(previous != -1) {
-		num_transitions[previous][old_class] -= 1;
 		num_transitions[previous][new_class] += 1;
 	}
 	if(future != -1) {
-		num_transitions[old_class][future] -= 1;
 		num_transitions[new_class][future] += 1;
 	}
-
-	num_same_words_assigned_to_class[word][old_class] -= 1;
-	num_same_words_assigned_to_class[word][new_class] += 1;
-
-	num_words_assigned_to_class[old_class] -= 1;
-	num_words_assigned_to_class[new_class] += 1;
-
-	if(old_class == 0 && new_class != 0) {
-		num_words_in_doc_assigned_to_topic[document_idx][old_topic] -= 1;
-		num_same_words_assigned_to_topic[word][old_topic] -= 1;
-		num_words_assigned_to_topic[old_topic] -= 1;
-	} else if(old_class != 0 && new_class == 0) {
+	if(new_class == 0) {
+		// Add word to the topic counts
 		num_words_in_doc_assigned_to_topic[document_idx][old_topic] += 1;
 		num_same_words_assigned_to_topic[word][old_topic] += 1;
 		num_words_assigned_to_topic[old_topic] += 1;
 	}
+	// Add word to the new class counts
+	num_same_words_assigned_to_class[word][new_class] += 1;
+	num_words_assigned_to_class[new_class] += 1;
 }
 
 void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, int word_idx, int doc_size) {
@@ -245,13 +251,17 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, in
 	int old_class = class_assignments[document_idx][word_idx];
 	int word = documents[document_idx][word_idx];
 
+	// Exclude current word from topic counts
+	if(old_class == 0) {
+		num_words_in_doc_assigned_to_topic[document_idx][old_topic]--;
+		num_same_words_assigned_to_topic[word][old_topic]--;
+		num_words_assigned_to_topic[old_topic]--;
+	}
+
+
 	// Initialize probability proportions with document topic counts
 	vector<double> proportions(num_words_in_doc_assigned_to_topic[document_idx].begin(), 
 		num_words_in_doc_assigned_to_topic[document_idx].end());
-
-	// Exclude current word
-	if(old_class == 0)
-		proportions[old_topic] -= 1.0;
 
 	// Smoothing
 	for(int i = 0; i < num_topics; i++)
@@ -266,12 +276,8 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, in
 		// Initialize denominator with global topic counts
 		vector<double> denominator(num_words_assigned_to_topic.begin(), num_words_assigned_to_topic.end());
 
-		// Exclude current word
-		numerator[old_topic] -= 1.0;
-		denominator[old_topic] -= 1.0;
-
-		// Smoothing
 		for(int i = 0; i < num_topics; i++) {
+			// Smoothing
 			numerator[i] += beta;
 			denominator[i] += vocab_size * beta;
 			// Apply multiplier
@@ -285,15 +291,10 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, in
 	// logging.info('drew topic %d', new_topic)
 	topic_assignments[document_idx][word_idx] = new_topic;
 
-	// Correct counts
+	// Correct counts with new topic
 	if(old_class == 0) {
-		num_words_in_doc_assigned_to_topic[document_idx][old_topic] -= 1 ;
 		num_words_in_doc_assigned_to_topic[document_idx][new_topic] += 1;
-
-		num_same_words_assigned_to_topic[word][old_topic] -= 1;
 		num_same_words_assigned_to_topic[word][new_topic] += 1;
-
-		num_words_assigned_to_topic[old_topic] -= 1;
 		num_words_assigned_to_topic[new_topic] += 1;
 	}
 }
