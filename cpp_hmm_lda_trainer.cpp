@@ -1,5 +1,4 @@
 #include "Models/cpp_hmm_lda/model.h"
-// #include "Models/cpp_hmm_lda/model.cpp"
 #include <map>
 #include <iostream>
 #include <fstream>
@@ -50,10 +49,9 @@ void load_documents_to_model(HiddenMarkovModelLatentDirichletAllocation &model, 
 		while(ss >> num) {
 			document.push_back(num);
 		}
-		// cout << document.size() << endl;
 		model.add_document(document);
 		counter ++;
-		if(counter == 10000) break;
+		// if(counter == 10000) break;
 		if(counter%1000000 == 0) {
 			cout << counter << endl;
 		}
@@ -63,16 +61,32 @@ void load_documents_to_model(HiddenMarkovModelLatentDirichletAllocation &model, 
 int main(int argc, char const *argv[]) {
 	std::clock_t start;
 	start = std::clock();
+	// model parameter initializations
+	int num_topics = 50;
+	int num_classes = 17;
+	// int num_classes = 3;			// topics only setting
+	int start_word_id = 0;
+	int end_word_id = 1;
+	// double alpha = 50.0/num_topics;
+	double alpha = 0.5;
+	double beta = 0.3;			// topic words prior
+	double gamma = 1;			// transition probabilities prior
+	double delta = 0.1;		// Class words prior
+
 	// your test
-	string vocab_filename = "Data/4M.es.dict";
+	string vocab_filename = "Data/20newsgroup/20news_vocab.txt";
 	vector<string> vocab;
 	int vocab_size = read_vocabulary(vocab_filename, vocab);
-	HiddenMarkovModelLatentDirichletAllocation model(vocab_size, 20, 5, 0.1, 0.1, 0.1, 0.1);
-	string documents_filename = "Data/4M.es.train";
+	HiddenMarkovModelLatentDirichletAllocation model(vocab_size, num_topics, num_classes, 
+		start_word_id, end_word_id, alpha, beta, gamma, delta, "20news");
+		// start_word_id, end_word_id, alpha, beta, gamma, delta, "20news-topics");
+	string documents_filename = "Data/20newsgroup/20news_train_encoded.txt";
 	load_documents_to_model(model, documents_filename);
+	string topic_assignments_file = "Results/20news-topics/500_results/topic_assignments.txt";
+	model.load_topic_assignments(topic_assignments_file);
 	model.run_counts();
 	cout << "Training Started" << endl;
-	model.train(1000,50);
+	model.train(2500,100);
 	std::cout << "Time: " << (std::clock() - start) / (double)(CLOCKS_PER_SEC) << " s" << std::endl;
 	return 0;
 }

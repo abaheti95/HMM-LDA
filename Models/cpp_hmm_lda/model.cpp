@@ -35,10 +35,13 @@ int categorical(vector<double> proportions) {
 }
 
 HiddenMarkovModelLatentDirichletAllocation::HiddenMarkovModelLatentDirichletAllocation(int vocab, int topics, 
-	int classes, double n_alpha, double n_beta, double n_gamma, double n_delta): vocab_size(vocab), 
-	num_topics(topics), num_classes(classes), alpha(n_alpha), beta(n_beta), gamma(n_gamma), delta(n_delta), 
-	rng(rd()), topic_dist(0,topics-1), class_dist(0, classes-1) {
+	int classes, int start_word, int end_word, double n_alpha, double n_beta, double n_gamma, double n_delta, string save_directory): 
+	vocab_size(vocab), num_topics(topics), num_classes(classes), start_word_id(start_word), end_word_id(end_word), 
+	alpha(n_alpha), beta(n_beta), gamma(n_gamma), delta(n_delta), save_dir(save_directory), rng(rd()), topic_dist(0,topics-1), 
+	class_dist(0, classes-3) {
 	// All 2D vectors are empty at the moment
+	START_WORD_CLASS = num_classes - 2;
+	END_WORD_CLASS = num_classes - 1;
 }
 
 HiddenMarkovModelLatentDirichletAllocation::~HiddenMarkovModelLatentDirichletAllocation() {
@@ -59,12 +62,34 @@ void HiddenMarkovModelLatentDirichletAllocation::add_document(vector<int> docume
 	int doc_size = document.size();
 	for(int i = 0; i < doc_size; i++) {
 		topic_assignment[i] = topic_dist(rng);
-		class_assignment[i] = class_dist(rng);
+		if(document[i] == start_word_id)
+			class_assignment[i] = START_WORD_CLASS;
+		else if(document[i] ==  end_word_id)
+			class_assignment[i] = END_WORD_CLASS;
+		else
+			class_assignment[i] = class_dist(rng);
 	}
 	// cout << "Printing topic assignments of a document" << endl;
 	// print_vector<int>(topic_assignment);
 	topic_assignments.push_back(topic_assignment);
 	class_assignments.push_back(class_assignment);
+}
+
+void HiddenMarkovModelLatentDirichletAllocation::load_topic_assignments(string &topic_file) {
+	ifstream file(topic_file, ios::in);
+	string str;
+	getline(file, str);			// remove first line
+	int n_documents = documents.size();
+	for(int i = 0; i < n_documents; i++) {
+		getline(file, str);
+		stringstream ss(str);
+		int doc_size = topic_assignments[i].size();
+		for(int j = 0; j < doc_size; j++) {
+			int num;
+			ss >> num;
+			topic_assignments[i][j] = num;
+		}
+	}
 }
 
 void HiddenMarkovModelLatentDirichletAllocation::run_counts() {
@@ -131,7 +156,8 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	int old_class = class_assignments[document_idx][word_idx];
 	int old_topic = topic_assignments[document_idx][word_idx];
 	int word = documents[document_idx][word_idx];
-
+	if(word == start_word_id || word == end_word_id) 
+		return;
 	// Get neighboring classes
 	int previous = -1;
 	if(word_idx > 0)
@@ -225,6 +251,16 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_class(int document_idx, in
 	// Draw class
 	// logging.info('proportions = %s', proportions)
 	int new_class = categorical(proportions);
+	// if(document_idx == 0) {
+	// 	if(new_class == 0) {
+	// 		cout << "Printing proportions for class sampling" << document_idx << " " << word_idx << endl;
+	// 		print_vector<double>(proportions);
+	// 		print_vector<double>(numerator);
+	// 		print_vector<double>(multiplier_numerator);
+	// 		cout << old_class << " New class chosen " << new_class << endl;
+	// 		cout << alpha << " " << beta << " " << gamma << " " << delta << endl; 
+	// 	}
+	// }
 	// logging.info('drew class %d', new_class)
 	class_assignments[document_idx][word_idx] = new_class;
 
@@ -268,6 +304,7 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, in
 		proportions[i] += alpha;
 
 	// If the current word is assigned to the semantic class
+	// TODO: I have commented next line. Remove it later
 	if(old_class == 0) {
 		// Initialize numerator with same word topic counts
 		vector<double> numerator(num_same_words_assigned_to_topic[word].begin(),
@@ -283,6 +320,7 @@ void HiddenMarkovModelLatentDirichletAllocation::draw_topic(int document_idx, in
 			// Apply multiplier
 			proportions[i] = proportions[i] * numerator[i] / denominator[i];
 		}
+	// TODO: I have commented next line. Remove it later
 	}
 	
 	// Draw topic
@@ -303,11 +341,11 @@ void HiddenMarkovModelLatentDirichletAllocation::save_assignments(int iteration)
 	cout << "Saving assignments for iteration " << iteration << endl;
 	int n_documents = documents.size();
 	// Create a new directory and save 2 files for topic assignments and class assignments
-	string save_dir = "Results/" + to_string(iteration) + "_results";
-	system(("mkdir -p " + save_dir).c_str());
-	cout << "Directory :" << save_dir << " created" << endl;
-	ofstream class_file((save_dir + "/class_assignments.txt").c_str());
-	class_file << n_documents << endl;
+	string save_dir_path = "Results/" + save_dir + "/" + to_string(iteration) + "_results";
+	system(("mkdir -p " + save_dir_path).c_str());
+	cout << "Directory :" << save_dir_path << " created" << endl;
+	ofstream class_file((save_dir_path + "/class_assignments.txt").c_str());
+	class_file << n_documents << " " << num_classes << endl;
 	for(int document_idx = 0; document_idx < n_documents; document_idx++) {
 		int doc_size = class_assignments[document_idx].size();
 		for(int word_idx = 0; word_idx < doc_size; word_idx++)
@@ -315,8 +353,8 @@ void HiddenMarkovModelLatentDirichletAllocation::save_assignments(int iteration)
 		class_file << endl;
 	}
 	class_file.close();
-	ofstream topic_file((save_dir + "/topic_assignments.txt").c_str());
-	topic_file << n_documents << endl;
+	ofstream topic_file((save_dir_path + "/topic_assignments.txt").c_str());
+	topic_file << n_documents << " " << num_topics << endl;
 	for(int document_idx = 0; document_idx < n_documents; document_idx++) {
 		int doc_size = topic_assignments[document_idx].size();
 		for(int word_idx = 0; word_idx < doc_size; word_idx++)
