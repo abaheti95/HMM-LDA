@@ -1,0 +1,4 @@
+# Each line of input file is a document with full words all space separated
+bin/mallet import-file --input <INPUT_FILENAME> --name 0 --label 0 --output <MALLET_FORMAT_INPUT_FILENAME> --keep-sequence --remove-stopwords
+
+bin/mallet train-topics --input <MALLET_FORMAT_INPUT_FILENAME> --num-topics 50 --num-iterations 500 --output-state <OUTPUT.GZ_FILE_OF_CURRENT_MODEL_STATE>

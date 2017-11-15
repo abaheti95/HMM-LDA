@@ -82,8 +82,8 @@ int main(int argc, char const *argv[]) {
 		// start_word_id, end_word_id, alpha, beta, gamma, delta, "20news-topics");
 	string documents_filename = "Data/20newsgroup/20news_train_encoded.txt";
 	load_documents_to_model(model, documents_filename);
-	string topic_assignments_file = "Results/20news-topics/500_results/topic_assignments.txt";
-	model.load_topic_assignments(topic_assignments_file);
+	// string topic_assignments_file = "Results/20news-topics/500_results/topic_assignments.txt";
+	// model.load_topic_assignments(topic_assignments_file);
 	model.run_counts();
 	cout << "Training Started" << endl;
 	model.train(2500,100);

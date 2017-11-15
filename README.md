@@ -3,6 +3,6 @@
 
 The code is tested on 20-newsgroups Topic modeling dataset and work as expecte but only in certain specific setting. Ideally is should work correctly with proper hyperparameter tuning but that takes too much time. Following hack reduces the chances of code to find undesirable output.
 
-- Run the model in "topics only" setting with #classes = 3 (topic_class, sentence_start, sentence_end) and desired #topics for specific number of iterations until you get desired topic assignments.
+- Run the model in "topics only" setting with #classes = 3 (topic_class, sentence_start, sentence_end) and desired #topics for specific number of iterations until you get desired topic assignments OR Use some other topic modelling toolkit like [mallet](http://mallet.cs.umass.edu/) (Refer to the mallet_topic_modeling_commands.txt in the project)
 - Use that topic assignments to initialize the full model with more #classes and same #topics. This ensures that some words already have a strong bias towards being topic words irrespective of random class assignments.
 

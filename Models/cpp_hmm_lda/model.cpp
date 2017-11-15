@@ -76,8 +76,8 @@ void HiddenMarkovModelLatentDirichletAllocation::add_document(vector<int> docume
 }
 
 void HiddenMarkovModelLatentDirichletAllocation::load_topic_assignments(string &topic_file) {
+	cout << "Loading topic assingments from " << topic_file << endl;string str;
 	ifstream file(topic_file, ios::in);
-	string str;
 	getline(file, str);			// remove first line
 	int n_documents = documents.size();
 	for(int i = 0; i < n_documents; i++) {
@@ -118,10 +118,11 @@ void HiddenMarkovModelLatentDirichletAllocation::run_counts() {
 		int previous_class = -1;
 		for(int word_idx = 0; word_idx < doc_size; word_idx++) {
 			int word = documents[document_idx][word_idx];
-			if(class_assignments[document_idx][word_idx] == 0)		// Count the topic only when the class is 0
+			if(class_assignments[document_idx][word_idx] == 0) {		// Count the topic only when the class is 0
 				num_words_in_doc_assigned_to_topic[document_idx][topic_assignments[document_idx][word_idx]] += 1;
 				num_same_words_assigned_to_topic[word][topic_assignments[document_idx][word_idx]] += 1;
 				num_words_assigned_to_topic[topic_assignments[document_idx][word_idx]]++;
+			}
 			num_same_words_assigned_to_class[word][class_assignments[document_idx][word_idx]] += 1;
 			num_words_assigned_to_class[class_assignments[document_idx][word_idx]]++;
 			int current_class = class_assignments[document_idx][word_idx];
