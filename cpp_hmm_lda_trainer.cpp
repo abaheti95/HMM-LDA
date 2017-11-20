@@ -9,36 +9,9 @@
 #include <ctime>
 
 using namespace std;
-// https://stackoverflow.com/a/236803/4535284
-template<typename Out>
-void split(const std::string &s, char delim, Out result) {
-	std::stringstream ss;
-	ss.str(s);
-	std::string item;
-	while (std::getline(ss, item, delim)) {
-		*(result++) = item;
-	}
-}
-
-std::vector<std::string> split(const std::string &s, char delim) {
-	std::vector<std::string> elems;
-	split(s, delim, std::back_inserter(elems));
-	return elems;
-}
 
 
-// Read the vocabulary from the file into an unordered_map
-int read_vocabulary(string &vocab_filename, vector<string> &vocab) {
-	ifstream file(vocab_filename, ios::in);
-	string str;
-	while(getline(file, str)) {
-		vector<string> str_spl = split(str, ' ');
-		vocab.push_back(str_spl[0]);
-	}
-	return vocab.size();
-}
-
-void load_documents_to_model(HiddenMarkovModelLatentDirichletAllocation &model, string &documents_filename) {
+void load_documents_to_model(HMMLDA &model, string &documents_filename) {
 	ifstream file(documents_filename, ios::in);
 	string str;
 	int counter = 0;
@@ -77,7 +50,7 @@ int main(int argc, char const *argv[]) {
 	string vocab_filename = "Data/20newsgroup/20news_vocab.txt";
 	vector<string> vocab;
 	int vocab_size = read_vocabulary(vocab_filename, vocab);
-	HiddenMarkovModelLatentDirichletAllocation model(vocab_size, num_topics, num_classes, 
+	HMMLDA model(vocab_size, num_topics, num_classes, 
 		start_word_id, end_word_id, alpha, beta, gamma, delta, "20news");
 		// start_word_id, end_word_id, alpha, beta, gamma, delta, "20news-topics");
 	string documents_filename = "Data/20newsgroup/20news_train_encoded.txt";
