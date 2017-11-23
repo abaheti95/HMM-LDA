@@ -34,14 +34,15 @@ int categorical(vector<double> proportions) {
 	return size - 1;
 }
 
-HMMLDA::HMMLDA(int vocab, int topics, 
-	int classes, int start_word, int end_word, double n_alpha, double n_beta, double n_gamma, double n_delta, string save_directory): 
-	vocab_size(vocab), num_topics(topics), num_classes(classes), start_word_id(start_word), end_word_id(end_word), 
-	alpha(n_alpha), beta(n_beta), gamma(n_gamma), delta(n_delta), save_dir(save_directory), rng(rd()), topic_dist(0,topics-1), 
+HMMLDA::HMMLDA(string &vocab_filename, int topics, int classes, int start_word, int end_word, 
+	double n_alpha, double n_beta, double n_gamma, double n_delta, string save_directory): 
+	num_topics(topics), num_classes(classes), start_word_id(start_word), end_word_id(end_word), alpha(n_alpha),
+	beta(n_beta), gamma(n_gamma), delta(n_delta), save_dir(save_directory), rng(rd()), topic_dist(0,topics-1), 
 	class_dist(0, classes-3) {
 	// All 2D vectors are empty at the moment
 	START_WORD_CLASS = num_classes - 2;
 	END_WORD_CLASS = num_classes - 1;
+	vocab_size = this->read_vocabulary(vocab_filename);
 }
 
 HMMLDA::~HMMLDA() {
@@ -52,6 +53,20 @@ HMMLDA::~HMMLDA() {
 		class_assignments[document_idx].clear();
 		topic_assignments[document_idx].clear();
 	}
+}
+
+// Read the vocabulary from the file into an unordered_map
+int HMMLDA::read_vocabulary(string &vocab_filename) {
+	ifstream file(vocab_filename, ios::in);
+	string str;
+	int i = 0;
+	while(getline(file, str)) {
+		vector<string> str_spl = split(str, ' ');
+		vocab.push_back(str_spl[0]);
+		vocab_dict[str_spl[0]] = i;
+		i++;
+	}
+	return vocab.size();
 }
 
 void HMMLDA::add_document(vector<int> document) {
@@ -409,13 +424,13 @@ void HMMLDA::save_assignments(int iteration) {
 	NOTE: A lot of code below is similar to the code used in training but I didn't care to optimize the structure too much lest it becomes unreadable
 */
 // For an unseen document we will add its topic and class assignment temporarily to the total counts
-void HMMLDA::add_counts_for_new_document(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, int doc_size) {
+void HMMLDA::add_counts_for_new_document(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, vector<int> &num_words_in_document_assigned_to_topic, int doc_size) {
 	int previous_class = -1;
 	for(int word_idx = 0; word_idx < doc_size; word_idx++) {
 		int word = document[word_idx];
 		if(class_assignment[word_idx] == 0) {		// Count the topic only when the class is 0
 			//TODO: Think about how to implement num_words_in_doc_assigned_to_topic for a new document
-			num_words_in_doc_assigned_to_topic[document_idx][topic_assignment[word_idx]]++;
+			num_words_in_document_assigned_to_topic[topic_assignment[word_idx]]++;
 			num_same_words_assigned_to_topic[word][topic_assignment[word_idx]]++;
 			num_words_assigned_to_topic[topic_assignment[word_idx]]++;
 		}
@@ -429,12 +444,12 @@ void HMMLDA::add_counts_for_new_document(vector<int> &document, vector<int> &top
 }
 
 // For an unseen document we will remove its topic and class assignment temporarily to the total counts
-void HMMLDA::remove_counts_for_new_document(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, int doc_size) {
+void HMMLDA::remove_counts_for_new_document(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, vector<int> &num_words_in_document_assigned_to_topic, int doc_size) {
 	int previous_class = -1;
 	for(int word_idx = 0; word_idx < doc_size; word_idx++) {
 		int word = document[word_idx];
 		if(class_assignment[word_idx] == 0) {		// Count the topic only when the class is 0
-			num_words_in_doc_assigned_to_topic[document_idx][topic_assignment[word_idx]]--;
+			num_words_in_document_assigned_to_topic[topic_assignment[word_idx]]--;
 			num_same_words_assigned_to_topic[word][topic_assignment[word_idx]]--;
 			num_words_assigned_to_topic[topic_assignment[word_idx]]--;
 		}
@@ -447,23 +462,218 @@ void HMMLDA::remove_counts_for_new_document(vector<int> &document, vector<int> &
 	}
 }
 
-void HMMLDA::relabel_document(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, int doc_size, int iterations) {
-	add_counts_for_new_document(document, topic_assignment, class_assignment, doc_size);
+int HMMLDA::input_to_document(vector<string> &words, vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment) {
+	for(int i = 0; i < (int)words.size(); i++) {
+		document[i] = vocab_dict[words[i]];
+		topic_assignment[i] = topic_dist(rng);
+		if(document[i] == start_word_id)
+			class_assignment[i] = START_WORD_CLASS;
+		else if(document[i] ==  end_word_id)
+			class_assignment[i] = END_WORD_CLASS;
+		else
+			class_assignment[i] = class_dist(rng);
+	}
+	return words.size();
+}
+// Assumes that document topic_assignment class_assignment and num_words_in_document_assigned_to_topic are already initialized to sufficient size
+string HMMLDA::relabel_document(string &input, vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, vector<int> &num_words_in_document_assigned_to_topic, int iterations) {
+	vector<string> words = split(input, ' ');
+	int doc_size = input_to_document(words, document, topic_assignment, class_assignment);
+	add_counts_for_new_document(document, topic_assignment, class_assignment, num_words_in_document_assigned_to_topic, doc_size);
 	// Resample the current document for some iterations
 	for(int i = 1; i <= iterations; i++) {
-		std::clock_t start = std::clock();
 		for(int word_idx = 0; word_idx < doc_size; word_idx++) {
-			draw_class(document_idx, word_idx, doc_size);
-			draw_topic(document_idx, word_idx, doc_size);
+			spl_draw_class(document, class_assignment, topic_assignment, num_words_in_document_assigned_to_topic, word_idx, doc_size);
+			spl_draw_topic(document, class_assignment, topic_assignment, num_words_in_document_assigned_to_topic, word_idx, doc_size);
 		}
-		std::cout << "Time for iteration " << i <<": " << (std::clock() - start) / (double)(CLOCKS_PER_SEC) << " s" << endl;
-		if((i%save_freq) == 0)
-			save_assignments(i);
-		// cout << endl << endl << endl << endl;
 	}
-	remove_counts_for_new_document(document, topic_assignment, class_assignment, doc_size);
+	// Create the output string
+	string output = "";
+	for(int i = 0; i < doc_size; i++) {
+		string assignment = "";
+		if(class_assignment[i] == 0)
+			assignment = "T" + std::to_string(topic_assignment[i]);
+		else
+			assignment = "C" + std::to_string(class_assignment[i]);
+		output += words[i] + "/" + assignment + " ";
+	}
+	remove_counts_for_new_document(document, topic_assignment, class_assignment, num_words_in_document_assigned_to_topic, doc_size);
+	return output;
 }
 
+void HMMLDA::spl_draw_class(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, vector<int> &num_words_in_document_assigned_to_topic, int word_idx, int doc_size) {
+	int old_class = class_assignment[word_idx];
+	int old_topic = topic_assignment[word_idx];
+	int word = document[word_idx];
+	if(word == start_word_id || word == end_word_id) 
+		return;
+	// Get neighboring classes
+	int previous = -1;
+	if(word_idx > 0)
+		previous = class_assignment[word_idx - 1];
+	int future = -1;
+	if(word_idx < doc_size-1)
+		future = class_assignment[word_idx + 1];
+
+	// Remove current word from transition counts
+	if(previous != -1)
+		num_transitions[previous][old_class]--;
+	if(future != -1)
+		num_transitions[old_class][future]--;
+	if(old_class == 0) {
+		// Remove word from topic counts
+		num_same_words_assigned_to_topic[word][old_topic]--;
+		num_words_assigned_to_topic[old_topic]--;
+		num_words_in_document_assigned_to_topic[old_topic]--;
+	}
+	// Remove the word from class counts
+	num_same_words_assigned_to_class[word][old_class]--;
+	num_words_assigned_to_class[old_class]--;
+
+	// Build first term of numerator
+	vector<double> term_1(num_classes, 0.0);
+	if(previous != -1) {
+		for(int i = 0; i < num_classes; i++)
+			term_1[i] = num_transitions[previous][i];
+	}
+	//Smoothing
+	for(int i = 0; i < num_classes; i++)
+		term_1[i] += gamma;
+
+	// Build second term of numerator
+	vector<double> term_2(num_classes, 0.0);
+	if(future != -1) {
+		for(int i = 0; i < num_classes; i++)
+			term_2[i] = num_transitions[i][future];
+	}
+	//Smoothing
+	for(int i = 0; i < num_classes; i++)
+		term_2[i] += gamma;
+	// Adjusting for the itentity value in the numerator term 2
+	if(previous != -1 && future != -1 && (previous == future))
+		term_2[previous] += 1.0;
+
+	// Calculate numerator
+	vector<double> numerator(num_classes, 0.0);
+	for(int i = 0; i < num_classes; i++)
+		numerator[i] = term_1[i] * term_2[i];
+
+	// Build denominator
+	vector<double> denominator(num_words_assigned_to_class.begin(), num_words_assigned_to_class.end());
+	if(previous != -1)
+		denominator[previous] += 1.0;
+	for(int i = 0; i < num_classes; i++)
+		denominator[i] += num_classes * gamma;
+	
+	// Calculate multiplier
+	
+	// Initialize numerator of multiplier with same word class/topic counts
+	vector<double> multiplier_numerator(num_same_words_assigned_to_class[word].begin(), 
+		num_same_words_assigned_to_class[word].end());
+	multiplier_numerator[0] = num_same_words_assigned_to_topic[word][old_topic];
+	
+	// Smoothing
+	for(int i = 0; i < num_classes; i++) {
+		if(i == 0)
+			multiplier_numerator[0] += beta;
+		else
+			multiplier_numerator[i] += delta;
+	}
+
+	// Initialize denominator of multiplier with global class/topic counts
+	vector<double> multiplier_denominator(num_words_assigned_to_class.begin(), num_words_assigned_to_class.end());
+	multiplier_denominator[0] = num_words_assigned_to_topic[old_topic];
+	
+	// Smoothing
+	for(int i = 0; i < num_classes; i++) {
+		if(i == 0)
+			multiplier_denominator[0] += beta * vocab_size;
+		else
+			multiplier_denominator[i] += delta * vocab_size;
+	}
+
+	// Calculate probability proportions
+	vector<double> proportions(num_classes, 0.0);
+	for(int i = 0; i < num_classes; i++) {
+		proportions[i] = (multiplier_numerator[i] / multiplier_denominator[i]) * numerator[i] / denominator[i];
+	}
+	// Draw class
+	int new_class = categorical(proportions);
+
+	class_assignment[word_idx] = new_class;
+
+	// Restore counts counts
+	if(previous != -1) {
+		num_transitions[previous][new_class] += 1;
+	}
+	if(future != -1) {
+		num_transitions[new_class][future] += 1;
+	}
+	if(new_class == 0) {
+		// Add word to the topic counts
+		num_words_in_document_assigned_to_topic[old_topic] += 1;
+		num_same_words_assigned_to_topic[word][old_topic] += 1;
+		num_words_assigned_to_topic[old_topic] += 1;
+	}
+	// Add word to the new class counts
+	num_same_words_assigned_to_class[word][new_class] += 1;
+	num_words_assigned_to_class[new_class] += 1;
+}
+
+void HMMLDA::spl_draw_topic(vector<int> &document, vector<int> &topic_assignment, vector<int> &class_assignment, vector<int> &num_words_in_document_assigned_to_topic, int word_idx, int doc_size) {
+	int old_topic = topic_assignment[word_idx];
+	int old_class = class_assignment[word_idx];
+	int word = document[word_idx];
+
+	// Exclude current word from topic counts
+	if(old_class == 0) {
+		num_words_in_document_assigned_to_topic[old_topic]--;
+		num_same_words_assigned_to_topic[word][old_topic]--;
+		num_words_assigned_to_topic[old_topic]--;
+	}
+
+
+	// Initialize probability proportions with document topic counts
+	vector<double> proportions(num_words_in_document_assigned_to_topic.begin(), 
+		num_words_in_document_assigned_to_topic.end());
+
+	// Smoothing
+	for(int i = 0; i < num_topics; i++)
+		proportions[i] += alpha;
+
+	// If the current word is assigned to the semantic class
+	// TODO: I have commented next line. Remove it later
+	if(old_class == 0) {
+		// Initialize numerator with same word topic counts
+		vector<double> numerator(num_same_words_assigned_to_topic[word].begin(),
+			num_same_words_assigned_to_topic[word].end());
+		
+		// Initialize denominator with global topic counts
+		vector<double> denominator(num_words_assigned_to_topic.begin(), num_words_assigned_to_topic.end());
+
+		for(int i = 0; i < num_topics; i++) {
+			// Smoothing
+			numerator[i] += beta;
+			denominator[i] += vocab_size * beta;
+			// Apply multiplier
+			proportions[i] = proportions[i] * numerator[i] / denominator[i];
+		}
+	// TODO: I have commented next line. Remove it later
+	}
+	
+	// Draw topic
+	// logging.info('proportions = %s', proportions)
+	int new_topic = categorical(proportions);
+	// logging.info('drew topic %d', new_topic)
+	topic_assignment[word_idx] = new_topic;
+
+	// Correct counts with new topic
+	if(old_class == 0) {
+		num_words_in_document_assigned_to_topic[new_topic] += 1;
+		num_same_words_assigned_to_topic[word][new_topic] += 1;
+		num_words_assigned_to_topic[new_topic] += 1;
+	}
+}
 
 
 
@@ -486,15 +696,4 @@ std::vector<std::string> split(const std::string &s, char delim) {
 	return elems;
 }
 
-
-// Read the vocabulary from the file into an unordered_map
-int read_vocabulary(string &vocab_filename, vector<string> &vocab) {
-	ifstream file(vocab_filename, ios::in);
-	string str;
-	while(getline(file, str)) {
-		vector<string> str_spl = split(str, ' ');
-		vocab.push_back(str_spl[0]);
-	}
-	return vocab.size();
-}
 

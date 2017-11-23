@@ -49,8 +49,7 @@ int main(int argc, char const *argv[]) {
 	// your test
 	string vocab_filename = "Data/20newsgroup/20news_vocab.txt";
 	vector<string> vocab;
-	int vocab_size = read_vocabulary(vocab_filename, vocab);
-	HMMLDA model(vocab_size, num_topics, num_classes, 
+	HMMLDA model(vocab_filename, num_topics, num_classes, 
 		start_word_id, end_word_id, alpha, beta, gamma, delta, "20news");
 		// start_word_id, end_word_id, alpha, beta, gamma, delta, "20news-topics");
 	string documents_filename = "Data/20newsgroup/20news_train_encoded.txt";
